@@ -583,6 +583,31 @@ public final class BranchingScheme {
         };
     }
 
+    public static Supplier<Procedure[]> topDownStaticOrdering(IntVar[] x) {
+        return () -> {
+            int idx = -1; // index of the first variable that is not bound
+            for (int k = 0; k < x.length; k++)
+                if (x[k].size() > 1) {
+                    idx = k;
+                    break;
+                }
+            if (idx == -1)
+                return EMPTY;
+            else {
+                IntVar qi = x[idx];
+                int size = qi.size();
+                int[] values = new int[size];
+                qi.fillArray(values);
+                Procedure[] branches = new Procedure[size];
+                for (int i = 0; i < size; i++) {
+                    int finalI = i;
+                    branches[i] = () -> branchEqual(qi, values[finalI]);
+                }
+                return branches;
+            }
+        };
+    }
+
     /**
      * Minimum entropy strategy.
      * It selects an unbound variable with the smallest entropy

@@ -159,7 +159,7 @@ public class SolveXCSP {
 			xcsp.damp(damp);
 			xcsp.dampingFactor(dampingFactor);
 
-			xcsp.solve(heuristic, timeout, statsFileStr, solFileStr);
+			xcsp.solve(heuristic, timeout, statsFileStr, solFileStr, 5);
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
