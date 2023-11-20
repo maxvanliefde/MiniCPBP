@@ -2300,6 +2300,7 @@ public class XCSP implements XCallbacks2 {
 
 
 		/* Send subproblems */
+		List<String> solutions = new ArrayList<>();
 		for (int i = 0; i < instances; i++) {
 			System.out.println("\n === NEW CHILD ===");
 			Solver minicp = solvers[i];
@@ -2319,24 +2320,57 @@ public class XCSP implements XCallbacks2 {
 			System.out.println(t);
 			System.out.println(tuples.get(i));
 			decompositionSolver.post(table(Arrays.copyOf(q, t), Utils.generateTableFromList(List.of(tuples.get(i)))));
-			solveChild(minicp, q, System.currentTimeMillis(), heuristic, timeout, statsFileStr, solFileStr);
+			solveChild(minicp, q, System.currentTimeMillis(), heuristic, timeout, statsFileStr, solFileStr, solutions);
+			System.out.println(solutions.size());
 		}
 
+		if (checkSolution || (solFileStr != ""))
+			extractSolutionStr = true;
 
-		/* */
+		/* Aggregate solutions to verify if needed */
+		foundSolution = !solutions.isEmpty();
+		if(!competitionOutput) {
+			if (foundSolution) {
+				System.out.printf("%d solutions found%n", solutions.size());
+				for (String values : solutions) {
+					StringBuilder sol = new StringBuilder("<instantiation>\n\t<list>\n\t\t");
+					for (XVarInteger x : xVars)
+						sol.append(x.id()).append(" ");
+					sol.append("\n\t</list>\n\t<values>\n\t\t");
+					sol.append(values);
+					sol.append("\n\t</values>\n</instantiation>");
+					solutionStr = sol.toString();
 
-		/*
-		// GP for branching, use all vars registered in solver, not only those appearing in the model
-		IntVar[] vars = new IntVar[minicp.getVariables().size()];
-		for (int i = 0; i < minicp.getVariables().size(); i++) {
-			vars[i] = minicp.getVariables().get(i);
+					if (checkSolution)
+						verifySolution();
+					printSolution(solFileStr);
+
+				}
+			} else
+				System.out.println("no solution was found");
+
+			Long runtime = System.currentTimeMillis() - t0;
+			System.out.println("runtime: " + runtime);
+//			printStats(stats, statsFileStr, runtime);
 		}
-		*/
-
+//		else {
+//			if(foundSolution) {
+//				System.out.println("s SATISFIABLE");
+//				System.out.println(solutionStr);
+//				System.out.println("c "+stats.numberOfFailures()+" backtracks");
+//			}
+//			else if(stats.isCompleted()) {
+//				System.out.println("s UNSATISFIABLE");
+//				System.out.println("c "+stats.numberOfFailures()+" backtracks");
+//			}
+//			else {
+//				System.out.println("s UNKNOWN");
+//			}
+//		}
 
 	}
 
-	private void solveChild(Solver minicp, IntVar[] vars, Long t0, BranchingHeuristic heuristic, int timeout, String statsFileStr, String solFileStr) {
+	private void solveChild(Solver minicp, IntVar[] vars, Long t0, BranchingHeuristic heuristic, int timeout, String statsFileStr, String solFileStr, List<String> solutions) {
 		Search search = null;
 		foundSolution = false;
 		switch (heuristic) {
@@ -2388,35 +2422,39 @@ public class XCSP implements XCallbacks2 {
 				System.exit(1);
 		}
 
-		if (checkSolution || (solFileStr != ""))
-			extractSolutionStr = true;
-
 		search.onSolution(() -> {
 			foundSolution = true;
-			if (extractSolutionStr) {
-				StringBuilder sol = new StringBuilder("<instantiation>\n\t<list>\n\t\t");
-				for (XVarInteger x : xVars)
-					sol.append(x.id()).append(" ");
-				sol.append("\n\t</list>\n\t<values>\n\t\t");
-				for (IntVar x : minicpVars) {
-					sol.append(x.min()).append(" ");
-				}
-				sol.append("\n\t</values>\n</instantiation>");
-				solutionStr = sol.toString();
+			StringBuilder sol = new StringBuilder();
+			for (IntVar x : minicpVars) {
+				sol.append(x.min()).append(" ");
 			}
-			if(competitionOutput) {
-				StringBuilder sol = new StringBuilder("v <instantiation>\nv <list> ");
-				for (XVarInteger x : xVars)
-					sol.append(x.id()).append(" ");
-				sol.append("</list>\nv <values> ");
-				for (IntVar x : minicpVars) {
-					sol.append(x.min()).append(" ");
-				}
-				sol.append("</values>\nv </instantiation>");
-				solutionStr = sol.toString();
-			}
-			// GP: printing each solution
-			System.out.println("SOLN:"+solutionStr);
+			solutions.add(sol.toString());
+//			extractSolutionStr = true;
+//			if (extractSolutionStr) {
+//				StringBuilder sol = new StringBuilder("<instantiation>\n\t<list>\n\t\t");
+//				for (XVarInteger x : xVars)
+//					sol.append(x.id()).append(" ");
+//				sol.append("\n\t</list>\n\t<values>\n\t\t");
+//				for (IntVar x : minicpVars) {
+//					sol.append(x.min()).append(" ");
+//				}
+//				sol.append("\n\t</values>\n</instantiation>");
+//				solutionStr = sol.toString();
+//				solutions.add(solutionStr);
+//			}
+//			if(competitionOutput) {
+//				StringBuilder sol = new StringBuilder("v <instantiation>\nv <list> ");
+//				for (XVarInteger x : xVars)
+//					sol.append(x.id()).append(" ");
+//				sol.append("</list>\nv <values> ");
+//				for (IntVar x : minicpVars) {
+//					sol.append(x.min()).append(" ");
+//				}
+//				sol.append("</values>\nv </instantiation>");
+//				solutionStr = sol.toString();
+//			}
+//			// GP: printing each solution
+//			System.out.println("SOLN:"+solutionStr);
 		});
 
 		SearchStatistics stats;
@@ -2433,33 +2471,33 @@ public class XCSP implements XCallbacks2 {
 			}, nbFailCutof, restartFactor);
 		}
 
-		if(!competitionOutput) {
-			if (foundSolution) {
-				if(competitionOutput) {}
-				System.out.println("solution found");
-				if (checkSolution)
-					verifySolution();
-				printSolution(solFileStr);
-			} else
-				System.out.println("no solution was found");
-
-			Long runtime = System.currentTimeMillis() - t0;
-			printStats(stats, statsFileStr, runtime);
-		}
-		else {
-			if(foundSolution) {
-				System.out.println("s SATISFIABLE");
-				System.out.println(solutionStr);
-				System.out.println("c "+stats.numberOfFailures()+" backtracks");
-			}
-			else if(stats.isCompleted()) {
-				System.out.println("s UNSATISFIABLE");
-				System.out.println("c "+stats.numberOfFailures()+" backtracks");
-			}
-			else {
-				System.out.println("s UNKNOWN");
-			}
-		}
+//		if(!competitionOutput) {
+//			if (foundSolution) {
+//				if(competitionOutput) {}
+//				System.out.println("solution found");
+//				if (checkSolution)
+//					verifySolution();
+//				printSolution(solFileStr);
+//			} else
+//				System.out.println("no solution was found");
+//
+//			Long runtime = System.currentTimeMillis() - t0;
+//			printStats(stats, statsFileStr, runtime);
+//		}
+//		else {
+//			if(foundSolution) {
+//				System.out.println("s SATISFIABLE");
+//				System.out.println(solutionStr);
+//				System.out.println("c "+stats.numberOfFailures()+" backtracks");
+//			}
+//			else if(stats.isCompleted()) {
+//				System.out.println("s UNSATISFIABLE");
+//				System.out.println("c "+stats.numberOfFailures()+" backtracks");
+//			}
+//			else {
+//				System.out.println("s UNKNOWN");
+//			}
+//		}
 
 	}
 
@@ -2490,6 +2528,9 @@ public class XCSP implements XCallbacks2 {
 				System.out.println("unable to create file " + solFileStr);
 				System.exit(1);
 			}
+		else {
+			System.out.println(solutionStr);
+		}
 	}
 
 	private void printStats(SearchStatistics stats, String statsFileStr, Long runtime) {
