@@ -2201,35 +2201,6 @@ public class XCSP implements XCallbacks2 {
 
 	public void solve(BranchingHeuristic heuristic, int timeout, String statsFileStr, String solFileStr, int instances) {
 
-		// GP: this is the solve we use
-//		Long t0 = System.currentTimeMillis();
-
-		XCSP[] xcsps = new XCSP[instances];
-		Solver[] solvers = new Solver[instances];
-//		IntVar[][] vars = new IntVar[instances][mapVar.size()];
-		xcsps[0] = this;
-		solvers[0] = this.minicp;
-//		vars[0] = getVars();
-		if (instances > 1) {
-			for (int i = 1; i < instances; i++) {
-				xcsps[i] = getNewProblem();
-				solvers[i] = xcsps[i].minicp;
-//				vars[i] = xcsp.getVars();
-			}
-		}
-
-		for (Solver minicp : solvers) {
-			minicp.setTraceBPFlag(traceBP);
-			minicp.setTraceSearchFlag(traceSearch);
-	//		minicp.setTraceNbIterFlag(traceNbIter);
-			minicp.setTraceEntropyFlag(traceEntropy);
-			minicp.setMaxIter(maxIter);
-	//		minicp.setDynamicStopBP(dynamicStopBP);
-	//		minicp.setDamp(damp);
-	//		minicp.setDampingFactor(dampingFactor);
-	//		minicp.setVariationThreshold(variationThreshold);
-		}
-
 		if (hasFailed) {
 			if (!competitionOutput) {
 				System.out.println("problem failed before initiating the search");
@@ -2241,23 +2212,27 @@ public class XCSP implements XCallbacks2 {
 			}
 		}
 
-		/*
-		Stream<IntVar> nonDecisionVars = mapVar.entrySet().stream().sorted(new EntryComparator())
-				.map(Map.Entry::getValue).filter(v -> !decisionVars.contains(v));
-		IntVar[] vars = Stream.concat(decisionVars.stream(),
-		 nonDecisionVars).toArray(IntVar[]::new);
-		*/
+		/* Instanciate the workers */
+		XCSP[] xcsps = new XCSP[instances];
+		for (int i = 0; i < instances; i++) {
+			xcsps[i] = getNewProblem();
+			Solver minicp = xcsps[i].minicp;
+			minicp.setTraceBPFlag(traceBP);
+			minicp.setTraceSearchFlag(traceSearch);
+//			minicp.setTraceNbIterFlag(traceNbIter);
+			minicp.setTraceEntropyFlag(traceEntropy);
+			minicp.setMaxIter(maxIter);
+//			minicp.setDynamicStopBP(dynamicStopBP);
+			minicp.setDamp(damp);
+			minicp.setDampingFactor(dampingFactor);
+//			minicp.setVariationThreshold(variationThreshold);
+		}
 
-		/* */
-		// possibly too complicated for nothing...
-		/* Hashing constraints */
-//		IntVar[] vars = mapVar.values().toArray(new IntVar[0]);
-
-		/* T-D Decomposition */
+		/* Top-Down Decomposition */
 		long t0 = System.currentTimeMillis();
 		int d = 0;
 		final List<List<Integer>> tuples = new ArrayList<>();
-		Solver decompositionSolver = getNewProblem().minicp;
+		Solver decompositionSolver = this.minicp;
 
 		// variables
 		int nVar = decompositionSolver.getVariables().size();
@@ -2267,7 +2242,7 @@ public class XCSP implements XCallbacks2 {
 		while (tuples.size() < instances) {
 
 			/* Determine a lower bound */
-//			d++; // easy :-)
+//			d++; // too easy :-)
 			d = Utils.newBound(tuples.size(), d, vars, instances);
 			if (d == -1) {
 				System.err.println("No more solutions, max depth attained");
@@ -2309,13 +2284,10 @@ public class XCSP implements XCallbacks2 {
 		List<List<Integer>> currentTuples = new ArrayList<>();
 		for (int i = 0; i < instances; i++) {
 			System.out.println("\n === NEW CHILD ===");
-			Solver minicp = solvers[i];
-			this.minicp = minicp;
-			this.xVars = xcsps[i].xVars;
-			this.minicpVars = xcsps[i].minicpVars;
+			Solver solver = xcsps[i].minicp;
 
-			IntVar[] q = new IntVar[minicp.getVariables().size()];
-			Utils.fillArrayFromStateStack(minicp.getVariables(), q);	// static ordering
+			IntVar[] q = new IntVar[solver.getVariables().size()];
+			Utils.fillArrayFromStateStack(solver.getVariables(), q);	// static ordering
 
 			/* Add tuple constraint */
 			if (i == instances - 1)
@@ -2327,9 +2299,9 @@ public class XCSP implements XCallbacks2 {
 				System.out.println(tuples.get(j));
 				currentTuples.add(tuples.get(j));
 			}
-			minicp.post(table(Arrays.copyOf(q, t), Utils.generateTableFromList(currentTuples)));
-			minicp.propagateSolver();
-			solveChild(minicp, q, System.currentTimeMillis(), heuristic, timeout, statsFileStr, solFileStr, solutions);
+			solver.post(table(Arrays.copyOf(q, t), Utils.generateTableFromList(currentTuples)));
+			solver.propagateSolver();
+			xcsps[i].solveChild(q, heuristic, timeout, solutions);
 //			System.out.println(solutions.size());
 		}
 
@@ -2379,10 +2351,11 @@ public class XCSP implements XCallbacks2 {
 
 	}
 
-	private void solveChild(Solver minicp, IntVar[] vars, Long t0, BranchingHeuristic heuristic, int timeout, String statsFileStr, String solFileStr, List<String> solutions) {
+	private void solveChild(IntVar[] vars, BranchingHeuristic heuristic, int timeout, List<String> solutions) {
 		Search search = null;
 		int initSol = solutions.size();
 		foundSolution = false;
+		long t0 = System.currentTimeMillis();
 		switch (heuristic) {
 			case FFRV:
 				minicp.setMode(PropaMode.SP);
