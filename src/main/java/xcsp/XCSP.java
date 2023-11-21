@@ -2211,7 +2211,7 @@ public class XCSP implements XCallbacks2, Runnable {
 		return xcsp;
 	}
 
-	public void solve(BranchingHeuristic heuristic, int timeout, String statsFileStr, String solFileStr, int instances) {
+	public void solve(BranchingHeuristic heuristic, int timeout, String statsFileStr, String solFileStr, int nWorkers) {
 		this.t0 = System.currentTimeMillis();
 
 		if (hasFailed) {
@@ -2225,9 +2225,10 @@ public class XCSP implements XCallbacks2, Runnable {
 			}
 		}
 
-		/* Instantiate the workers */
-		XCSP[] xcsps = new XCSP[instances];
-		for (int i = 0; i < instances; i++) {
+		/* Instantiate the instances */
+		int nInstances = 30 * nWorkers;
+		XCSP[] xcsps = new XCSP[nInstances];
+		for (int i = 0; i < nInstances; i++) {
 			XCSP subproblem = getNewProblem();
 			subproblem.t0 = t0;
 			subproblem.timeout = timeout;
@@ -2251,17 +2252,18 @@ public class XCSP implements XCallbacks2, Runnable {
 		int d = 0;
 		final List<List<Integer>> tuples = new ArrayList<>();
 		Solver decompositionSolver = this.minicp;
+		System.out.printf("=== Decomposition goal is %d%n", nInstances);
 
 		// variables
 		int nVar = decompositionSolver.getVariables().size();
 		IntVar[] vars = new IntVar[nVar];
 		Utils.fillArrayFromStateStack(decompositionSolver.getVariables(), vars);
 
-		while (tuples.size() < instances) {
+		while (tuples.size() < nInstances) {
 
 			/* Determine a lower bound */
 //			d++; // too easy :-)
-			d = Utils.newBound(tuples.size(), d, vars, instances);
+			d = Utils.newBound(tuples.size(), d, vars, nInstances);
 			if (d == -1) {
 				System.err.println("No more solutions, max depth attained");
 				break;
@@ -2285,24 +2287,37 @@ public class XCSP implements XCallbacks2, Runnable {
 			decompositionSolver.post(table(q, Utils.generateTableFromList(tuples)));
 			decompositionSolver.propagateSolver();
 
-			System.out.println(tuples);
-			System.out.println(tuples.size());
+			System.out.printf("%d tuples at depth %d : %s%n", tuples.size(), d, tuples);
 		}
 
-		System.out.println("decomposition done into " + tuples.size() + " subproblems in " + (System.currentTimeMillis() - t0) + " ms");
+		System.out.println("=== decomposition done into " + tuples.size() + " subproblems after " + (System.currentTimeMillis() - t0) + " ms");
 
+		int t = tuples.get(0).size(); // nVariables in each tuple
+//		int nStart = tuples.size() / nInstances, nEnd = nStart;
+//		int nLastChild = tuples.size() / nInstances + tuples.size() % nInstances;
+//		assert nStart * (nInstances - 1) + nLastChild == tuples.size();
 
-		/* Send subproblems */
-		int nStart = tuples.size() / instances, nEnd = nStart;
-		int nLastChild = tuples.size() / instances + tuples.size() % instances;
-		assert nStart * (instances - 1) + nLastChild == tuples.size();
-		int t = tuples.get(0).size();
+		int nTuplesTot = tuples.size();
+		int nTuplesPerSubp = tuples.size() / nInstances;
+		int nTuplesLeft = nTuplesTot - nTuplesPerSubp * nInstances;
+		int nTuples[] = new int[nInstances];
+		Arrays.fill(nTuples, nTuplesPerSubp);
+		Random rand = new Random();
+		for (int i = 0; i < nTuplesLeft; i++) {
+			int j = rand.nextInt(nInstances);
+			nTuples[j]++;
+		}
+		assert Arrays.stream(nTuples).sum() == nTuplesTot;
+
+		System.out.println("=== aggregation done into " + nInstances + " subproblems after " + (System.currentTimeMillis() - t0) + " ms");
+
+		/* Send subproblems to the workers */
 		List<String> solutions = new ArrayList<>();
+		ExecutorService executor = Executors.newFixedThreadPool(nWorkers);
+		Future<?>[] futures = new Future<?>[nInstances];
 
-		ExecutorService executor = Executors.newFixedThreadPool(instances);
-		Future<?>[] futures = new Future<?>[instances];
-		for (int i = 0; i < instances; i++) {
-			System.out.println("\n === NEW CHILD ===");
+		int iTuple = 0;
+		for (int i = 0; i < nInstances; i++) {
 			XCSP subproblem = xcsps[i];
 			Solver solver = xcsps[i].minicp;
 
@@ -2311,15 +2326,11 @@ public class XCSP implements XCallbacks2, Runnable {
 			subproblem.subproblemVars = subproblemVars;
 
 			/* Add tuple constraint */
-			if (i == instances - 1)
-				nEnd = nLastChild;
-
-			// tuples from i*nStart to (i+1)*nEnd
 			List<List<Integer>> currentTuples = new ArrayList<>();
-			for (int j = i * nStart; j < i * nStart + nEnd; j++) {
-				System.out.println(tuples.get(j));
-				currentTuples.add(tuples.get(j));
+			for (int j = 0; j < nTuples[i]; j++, iTuple++) {
+				currentTuples.add(tuples.get(iTuple));
 			}
+			System.out.printf("--- [subp %d] %d tuples: %s%n", i, currentTuples.size(), currentTuples);
 			solver.post(table(Arrays.copyOf(subproblemVars, t), Utils.generateTableFromList(currentTuples)));
 			solver.propagateSolver();
 
@@ -2329,14 +2340,14 @@ public class XCSP implements XCallbacks2, Runnable {
 		if (checkSolution || (solFileStr != ""))
 			extractSolutionStr = true;
 
-		for (int i = 0; i < instances; i++) {
+		for (int i = 0; i < nInstances; i++) {
 			try {
 				futures[i].get();
 			} catch (InterruptedException | ExecutionException e) {
 				System.err.println("Error while waiting for child " + i);
 				throw new RuntimeException(e);
 			}
-			System.out.println("\n === CHILD " + i + " DONE ===");
+			System.out.println("\n === INSTANCE " + i + " DONE ===");
 			System.out.println(xcsps[i].stats);
 			solutions.addAll(xcsps[i].subproblemSolutions);
 		}
