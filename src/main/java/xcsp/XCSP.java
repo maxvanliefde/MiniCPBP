@@ -2300,7 +2300,13 @@ public class XCSP implements XCallbacks2 {
 
 
 		/* Send subproblems */
+		int nStart = tuples.size() / instances, nEnd = nStart;
+		int nLastChild = tuples.size() / instances + tuples.size() % instances;
+		assert nStart * (instances - 1) + nLastChild == tuples.size();
+		int t = tuples.get(0).size();
+
 		List<String> solutions = new ArrayList<>();
+		List<List<Integer>> currentTuples = new ArrayList<>();
 		for (int i = 0; i < instances; i++) {
 			System.out.println("\n === NEW CHILD ===");
 			Solver minicp = solvers[i];
@@ -2308,20 +2314,23 @@ public class XCSP implements XCallbacks2 {
 			this.xVars = xcsps[i].xVars;
 			this.minicpVars = xcsps[i].minicpVars;
 
-//			IntVar[] vars = mapVar.values().toArray(new IntVar[0]);
 			IntVar[] q = new IntVar[minicp.getVariables().size()];
 			Utils.fillArrayFromStateStack(minicp.getVariables(), q);	// static ordering
-//			IntVar p = new IntVarImpl(minicp, instances, instances);
-//			IntVar pi = new IntVarImpl(minicp, i, i);
-//			minicp.post(equal(modulo(sum(q), p), pi));
 
 			/* Add tuple constraint */
-			int t = tuples.get(0).size();
-			System.out.println(t);
-			System.out.println(tuples.get(i));
-			decompositionSolver.post(table(Arrays.copyOf(q, t), Utils.generateTableFromList(List.of(tuples.get(i)))));
+			if (i == instances - 1)
+				nEnd = nLastChild;
+
+			// tuples from i*nStart to (i+1)*nEnd
+			currentTuples.clear();
+			for (int j = i * nStart; j < i * nStart + nEnd; j++) {
+				System.out.println(tuples.get(j));
+				currentTuples.add(tuples.get(j));
+			}
+			minicp.post(table(Arrays.copyOf(q, t), Utils.generateTableFromList(currentTuples)));
+			minicp.propagateSolver();
 			solveChild(minicp, q, System.currentTimeMillis(), heuristic, timeout, statsFileStr, solFileStr, solutions);
-			System.out.println(solutions.size());
+//			System.out.println(solutions.size());
 		}
 
 		if (checkSolution || (solFileStr != ""))
@@ -2343,7 +2352,7 @@ public class XCSP implements XCallbacks2 {
 
 					if (checkSolution)
 						verifySolution();
-					printSolution(solFileStr);
+//					printSolution(solFileStr);
 
 				}
 			} else
@@ -2372,6 +2381,7 @@ public class XCSP implements XCallbacks2 {
 
 	private void solveChild(Solver minicp, IntVar[] vars, Long t0, BranchingHeuristic heuristic, int timeout, String statsFileStr, String solFileStr, List<String> solutions) {
 		Search search = null;
+		int initSol = solutions.size();
 		foundSolution = false;
 		switch (heuristic) {
 			case FFRV:
@@ -2470,6 +2480,8 @@ public class XCSP implements XCallbacks2 {
 				return (System.currentTimeMillis() - t0 >= timeout * 1000 );
 			}, nbFailCutof, restartFactor);
 		}
+
+		System.out.println("Found " + (solutions.size() - initSol) + " solutions in " + (System.currentTimeMillis() - t0) + " ms");
 
 //		if(!competitionOutput) {
 //			if (foundSolution) {
