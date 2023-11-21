@@ -46,6 +46,10 @@ import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.security.InvalidParameterException;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
@@ -56,7 +60,7 @@ import static minicpbp.cp.BranchingScheme.*;
 import static minicpbp.cp.Factory.*;
 import static java.lang.reflect.Array.newInstance;
 
-public class XCSP implements XCallbacks2 {
+public class XCSP implements XCallbacks2, Runnable {
 
 	private Implem implem = new Implem(this);
 
@@ -73,6 +77,14 @@ public class XCSP implements XCallbacks2 {
 	private Optional<IntVar> realObjective = Optional.empty();
 
 	private boolean hasFailed;
+
+	/* Parallel computation */
+	private long t0;
+	private int timeout;
+	private BranchingHeuristic heuristic;
+	private IntVar[] subproblemVars;
+	private List<String> subproblemSolutions;
+	private SearchStatistics stats;
 
 	@Override
 	public Implem implem() {
@@ -2200,6 +2212,7 @@ public class XCSP implements XCallbacks2 {
 	}
 
 	public void solve(BranchingHeuristic heuristic, int timeout, String statsFileStr, String solFileStr, int instances) {
+		this.t0 = System.currentTimeMillis();
 
 		if (hasFailed) {
 			if (!competitionOutput) {
@@ -2212,24 +2225,29 @@ public class XCSP implements XCallbacks2 {
 			}
 		}
 
-		/* Instanciate the workers */
+		/* Instantiate the workers */
 		XCSP[] xcsps = new XCSP[instances];
 		for (int i = 0; i < instances; i++) {
-			xcsps[i] = getNewProblem();
-			Solver minicp = xcsps[i].minicp;
-			minicp.setTraceBPFlag(traceBP);
-			minicp.setTraceSearchFlag(traceSearch);
-//			minicp.setTraceNbIterFlag(traceNbIter);
-			minicp.setTraceEntropyFlag(traceEntropy);
-			minicp.setMaxIter(maxIter);
-//			minicp.setDynamicStopBP(dynamicStopBP);
-			minicp.setDamp(damp);
-			minicp.setDampingFactor(dampingFactor);
-//			minicp.setVariationThreshold(variationThreshold);
+			XCSP subproblem = getNewProblem();
+			subproblem.t0 = t0;
+			subproblem.timeout = timeout;
+			subproblem.heuristic = heuristic;
+			subproblem.subproblemSolutions = new ArrayList<>();
+			xcsps[i] = subproblem;
+
+			Solver subproblemSolver = xcsps[i].minicp;
+			subproblemSolver.setTraceBPFlag(traceBP);
+			subproblemSolver.setTraceSearchFlag(traceSearch);
+//			subproblemSolver.setTraceNbIterFlag(traceNbIter);
+			subproblemSolver.setTraceEntropyFlag(traceEntropy);
+			subproblemSolver.setMaxIter(maxIter);
+//			subproblemSolver.setDynamicStopBP(dynamicStopBP);
+			subproblemSolver.setDamp(damp);
+			subproblemSolver.setDampingFactor(dampingFactor);
+//			subproblemSolver.setVariationThreshold(variationThreshold);
 		}
 
 		/* Top-Down Decomposition */
-		long t0 = System.currentTimeMillis();
 		int d = 0;
 		final List<List<Integer>> tuples = new ArrayList<>();
 		Solver decompositionSolver = this.minicp;
@@ -2279,34 +2297,51 @@ public class XCSP implements XCallbacks2 {
 		int nLastChild = tuples.size() / instances + tuples.size() % instances;
 		assert nStart * (instances - 1) + nLastChild == tuples.size();
 		int t = tuples.get(0).size();
-
 		List<String> solutions = new ArrayList<>();
-		List<List<Integer>> currentTuples = new ArrayList<>();
+
+		ExecutorService executor = Executors.newFixedThreadPool(instances);
+		Future<?>[] futures = new Future<?>[instances];
 		for (int i = 0; i < instances; i++) {
 			System.out.println("\n === NEW CHILD ===");
+			XCSP subproblem = xcsps[i];
 			Solver solver = xcsps[i].minicp;
 
-			IntVar[] q = new IntVar[solver.getVariables().size()];
-			Utils.fillArrayFromStateStack(solver.getVariables(), q);	// static ordering
+			IntVar[] subproblemVars = new IntVar[solver.getVariables().size()];
+			Utils.fillArrayFromStateStack(solver.getVariables(), subproblemVars); // static ordering
+			subproblem.subproblemVars = subproblemVars;
 
 			/* Add tuple constraint */
 			if (i == instances - 1)
 				nEnd = nLastChild;
 
 			// tuples from i*nStart to (i+1)*nEnd
-			currentTuples.clear();
+			List<List<Integer>> currentTuples = new ArrayList<>();
 			for (int j = i * nStart; j < i * nStart + nEnd; j++) {
 				System.out.println(tuples.get(j));
 				currentTuples.add(tuples.get(j));
 			}
-			solver.post(table(Arrays.copyOf(q, t), Utils.generateTableFromList(currentTuples)));
+			solver.post(table(Arrays.copyOf(subproblemVars, t), Utils.generateTableFromList(currentTuples)));
 			solver.propagateSolver();
-			xcsps[i].solveChild(q, heuristic, timeout, solutions);
-//			System.out.println(solutions.size());
+
+			futures[i] = executor.submit(xcsps[i]);
 		}
 
 		if (checkSolution || (solFileStr != ""))
 			extractSolutionStr = true;
+
+		for (int i = 0; i < instances; i++) {
+			try {
+				futures[i].get();
+			} catch (InterruptedException | ExecutionException e) {
+				System.err.println("Error while waiting for child " + i);
+				throw new RuntimeException(e);
+			}
+			System.out.println("\n === CHILD " + i + " DONE ===");
+			System.out.println(xcsps[i].stats);
+			solutions.addAll(xcsps[i].subproblemSolutions);
+		}
+
+		executor.shutdown();
 
 		/* Aggregate solutions to verify if needed */
 		foundSolution = !solutions.isEmpty();
@@ -2330,8 +2365,8 @@ public class XCSP implements XCallbacks2 {
 			} else
 				System.out.println("no solution was found");
 
-			Long runtime = System.currentTimeMillis() - t0;
-			System.out.println("runtime: " + runtime);
+			long runtime = System.currentTimeMillis() - t0;
+			System.out.println("runtime: " + runtime + " ms");
 //			printStats(stats, statsFileStr, runtime);
 		}
 //		else {
@@ -2351,58 +2386,57 @@ public class XCSP implements XCallbacks2 {
 
 	}
 
-	private void solveChild(IntVar[] vars, BranchingHeuristic heuristic, int timeout, List<String> solutions) {
-		Search search = null;
-		int initSol = solutions.size();
+	public void run() {
+		Search search;
 		foundSolution = false;
-		long t0 = System.currentTimeMillis();
+		long childT0 = System.currentTimeMillis();
 		switch (heuristic) {
 			case FFRV:
 				minicp.setMode(PropaMode.SP);
-				search = makeSearch(firstFailRandomVal(vars));
+				search = makeSearch(firstFailRandomVal(subproblemVars));
 				break;
 			case MXMS:
-				search = makeSearch(maxMarginalStrength(vars));
+				search = makeSearch(maxMarginalStrength(subproblemVars));
 				break;
 			case MXM:
-				search = makeSearch(maxMarginal(vars));
+				search = makeSearch(maxMarginal(subproblemVars));
 				break;
 			case MNMS:
-				search = makeSearch(minMarginalStrength(vars));
+				search = makeSearch(minMarginalStrength(subproblemVars));
 				break;
 			case MNM:
-				search = makeSearch(minMarginal(vars));
+				search = makeSearch(minMarginal(subproblemVars));
 				break;
 			case MNE:
-				search = makeSearch(minEntropy(vars));
+				search = makeSearch(minEntropy(subproblemVars));
 				break;
 			case IE:
-				search = makeSearch(impactEntropy(vars));
+				search = makeSearch(impactEntropy(subproblemVars));
 				if(XCSP.initImpact)
-					search.initializeImpact(vars);
+					search.initializeImpact(subproblemVars);
 				break;
 			case IBS:
 				minicp.setMode(PropaMode.SP);
-				search = makeSearch(impactBasedSearch(vars));
-				search.initializeImpactDomains(vars);
-				nbFailCutof = nbFailCutof*vars.length;
+				search = makeSearch(impactBasedSearch(subproblemVars));
+				search.initializeImpactDomains(subproblemVars);
+				nbFailCutof = nbFailCutof*subproblemVars.length;
 				break;
 			case MIE:
-				search = makeDfs(minicp, minEntropyRegisterImpact(vars),impactEntropy(vars));
+				search = makeDfs(minicp, minEntropyRegisterImpact(subproblemVars),impactEntropy(subproblemVars));
 				if(XCSP.initImpact)
-					search.initializeImpact(vars);
+					search.initializeImpact(subproblemVars);
 				break;
 			case MNEBW:
-				search = makeSearch(minEntropyBiasedWheelSelectVal(vars));
+				search = makeSearch(minEntropyBiasedWheelSelectVal(subproblemVars));
 				break;
 			case WDEG:
 				minicp.setMode(PropaMode.SP);
-				search = makeSearch(domWdeg(vars));
-				nbFailCutof = nbFailCutof*vars.length;
+				search = makeSearch(domWdeg(subproblemVars));
+				nbFailCutof = nbFailCutof*subproblemVars.length;
 				break;
 			default:
 				System.out.println("unknown search strategy");
-				System.exit(1);
+				throw new RuntimeException();
 		}
 
 		search.onSolution(() -> {
@@ -2411,7 +2445,7 @@ public class XCSP implements XCallbacks2 {
 			for (IntVar x : minicpVars) {
 				sol.append(x.min()).append(" ");
 			}
-			solutions.add(sol.toString());
+			subproblemSolutions.add(sol.toString());
 //			extractSolutionStr = true;
 //			if (extractSolutionStr) {
 //				StringBuilder sol = new StringBuilder("<instantiation>\n\t<list>\n\t\t");
@@ -2440,21 +2474,13 @@ public class XCSP implements XCallbacks2 {
 //			System.out.println("SOLN:"+solutionStr);
 		});
 
-		SearchStatistics stats;
-		if(!restart) {
-			stats = search.solve(ss -> {
-//				return (System.currentTimeMillis() - t0 >= timeout * 1000 || foundSolution);
-				// GP; print all solns
-				return (System.currentTimeMillis() - t0 >= timeout * 1000);
-			});
-		}
-		else {
-			stats = search.solveRestarts(ss -> {
-				return (System.currentTimeMillis() - t0 >= timeout * 1000 );
-			}, nbFailCutof, restartFactor);
+		if (!restart) {
+			stats = search.solve(ss -> (System.currentTimeMillis() - t0 >= timeout * 1000L));
+		} else {
+			stats = search.solveRestarts(ss -> (System.currentTimeMillis() - t0 >= timeout * 1000L), nbFailCutof, restartFactor);
 		}
 
-		System.out.println("Found " + (solutions.size() - initSol) + " solutions in " + (System.currentTimeMillis() - t0) + " ms");
+		System.out.println("Found " + subproblemSolutions.size() + " solutions in " + (System.currentTimeMillis() - childT0) + " ms");
 
 //		if(!competitionOutput) {
 //			if (foundSolution) {
