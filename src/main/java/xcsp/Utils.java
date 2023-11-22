@@ -20,6 +20,7 @@ public class Utils {
 
 
     public static int[][] generateTableFromList(List<List<Integer>> tuples) {
+        assert !tuples.isEmpty();
         int nTuples = tuples.size();
         int nVars = tuples.get(0).size();
 
