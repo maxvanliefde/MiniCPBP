@@ -2225,6 +2225,80 @@ public class XCSP implements XCallbacks2, Runnable {
 			}
 		}
 
+		if (checkSolution || (solFileStr != ""))
+			extractSolutionStr = true;
+
+		List<String> solutions;
+		if (nWorkers > 1)
+			solutions = solveParallel(heuristic, timeout, solFileStr, nWorkers);
+		else if (nWorkers == 1)
+			solutions = solveSequential(heuristic, timeout, solFileStr);
+		else {
+			verifyParallelCorrectness(heuristic, timeout, solFileStr);
+			return;
+		}
+
+		/* Aggregate solutions to verify if needed */
+		foundSolution = !solutions.isEmpty();
+		if(!competitionOutput) {
+			if (foundSolution) {
+				System.out.printf("%d solutions found%n", solutions.size());
+				for (String values : solutions) {
+					StringBuilder sol = new StringBuilder("<instantiation>\n\t<list>\n\t\t");
+					for (XVarInteger x : xVars)
+						sol.append(x.id()).append(" ");
+					sol.append("\n\t</list>\n\t<values>\n\t\t");
+					sol.append(values);
+					sol.append("\n\t</values>\n</instantiation>");
+					solutionStr = sol.toString();
+
+					if (checkSolution)
+						verifySolution();
+//					printSolution(solFileStr);
+				}
+			} else
+				System.out.println("no solution was found");
+
+			long runtime = System.currentTimeMillis() - t0;
+			System.out.println("runtime: " + runtime + " ms");
+//			printStats(stats, statsFileStr, runtime);
+		}
+//		else {
+//			if(foundSolution) {
+//				System.out.println("s SATISFIABLE");
+//				System.out.println(solutionStr);
+//				System.out.println("c "+stats.numberOfFailures()+" backtracks");
+//			}
+//			else if(stats.isCompleted()) {
+//				System.out.println("s UNSATISFIABLE");
+//				System.out.println("c "+stats.numberOfFailures()+" backtracks");
+//			}
+//			else {
+//				System.out.println("s UNKNOWN");
+//			}
+//		}
+
+	}
+
+	private void verifyParallelCorrectness(BranchingHeuristic heuristic, int timeout, String solFileStr) {
+		List<String> solutionsParallel = solveParallel(heuristic, timeout, solFileStr, 7);
+		List<String> solutionsSequential = solveSequential(heuristic, timeout, solFileStr);
+
+		// check if the solutions are the same
+		if (solutionsParallel.size() != solutionsSequential.size()) {
+			System.err.println("size of solutions are not the same");
+			System.exit(1);
+		}
+		for (String sol : solutionsSequential) {
+			if (!solutionsParallel.contains(sol)) {
+				System.err.println("solutions are not the same");
+				System.exit(1);
+			}
+		}
+		System.err.println("solutions are the same");
+	}
+
+	private List<String> solveParallel(BranchingHeuristic heuristic, int timeout, String solFileStr, int nWorkers) {
 		/* Instantiate the instances */
 		int nInstances = 30 * nWorkers;
 		XCSP[] xcsps = new XCSP[nInstances];
@@ -2337,9 +2411,6 @@ public class XCSP implements XCallbacks2, Runnable {
 			futures[i] = executor.submit(xcsps[i]);
 		}
 
-		if (checkSolution || (solFileStr != ""))
-			extractSolutionStr = true;
-
 		for (int i = 0; i < nInstances; i++) {
 			try {
 				futures[i].get();
@@ -2353,48 +2424,28 @@ public class XCSP implements XCallbacks2, Runnable {
 		}
 
 		executor.shutdown();
+		return solutions;
+	}
 
-		/* Aggregate solutions to verify if needed */
-		foundSolution = !solutions.isEmpty();
-		if(!competitionOutput) {
-			if (foundSolution) {
-				System.out.printf("%d solutions found%n", solutions.size());
-				for (String values : solutions) {
-					StringBuilder sol = new StringBuilder("<instantiation>\n\t<list>\n\t\t");
-					for (XVarInteger x : xVars)
-						sol.append(x.id()).append(" ");
-					sol.append("\n\t</list>\n\t<values>\n\t\t");
-					sol.append(values);
-					sol.append("\n\t</values>\n</instantiation>");
-					solutionStr = sol.toString();
+	private List<String> solveSequential(BranchingHeuristic heuristic, int timeout, String solFileStr) {
+		this.timeout = timeout;
+		this.heuristic = heuristic;
+		this.subproblemSolutions = new ArrayList<>();
+		minicp.setTraceBPFlag(traceBP);
+		minicp.setTraceSearchFlag(traceSearch);
+//		minicp.setTraceNbIterFlag(traceNbIter);
+		minicp.setTraceEntropyFlag(traceEntropy);
+		minicp.setMaxIter(maxIter);
+//		minicp.setDynamicStopBP(dynamicStopBP);
+//		minicp.setDamp(damp);
+//		minicp.setDampingFactor(dampingFactor);
+//		minicp.setVariationThreshold(variationThreshold);
 
-					if (checkSolution)
-						verifySolution();
-//					printSolution(solFileStr);
+		this.subproblemVars = new IntVar[minicp.getVariables().size()];
+		Utils.fillArrayFromStateStack(minicp.getVariables(), subproblemVars); // static ordering
 
-				}
-			} else
-				System.out.println("no solution was found");
-
-			long runtime = System.currentTimeMillis() - t0;
-			System.out.println("runtime: " + runtime + " ms");
-//			printStats(stats, statsFileStr, runtime);
-		}
-//		else {
-//			if(foundSolution) {
-//				System.out.println("s SATISFIABLE");
-//				System.out.println(solutionStr);
-//				System.out.println("c "+stats.numberOfFailures()+" backtracks");
-//			}
-//			else if(stats.isCompleted()) {
-//				System.out.println("s UNSATISFIABLE");
-//				System.out.println("c "+stats.numberOfFailures()+" backtracks");
-//			}
-//			else {
-//				System.out.println("s UNKNOWN");
-//			}
-//		}
-
+		this.run();
+		return subproblemSolutions;
 	}
 
 	public void run() {
