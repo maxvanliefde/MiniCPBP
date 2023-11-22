@@ -83,6 +83,10 @@ public class SolveXCSP {
 		Option traceSearchOpt = Option.builder().longOpt("trace-search").hasArg(false).desc("trace the search progress")
 				.build();
 
+		/* Parallel solving */
+		Option nWorkersOpt = Option.builder().longOpt("workers").argName("WORKERS").hasArg()
+				.desc("number of workers (default 1)").build();
+
 
 		Options options = new Options();
 		options.addOption(xcspFileOpt);
@@ -97,6 +101,7 @@ public class SolveXCSP {
 		options.addOption(traceSearchOpt);
 		options.addOption(dampOpt);
 		options.addOption(dFactorOpt);
+		options.addOption(nWorkersOpt);
 
 		CommandLineParser parser = new DefaultParser();
 		CommandLine cmd = null;
@@ -149,6 +154,8 @@ public class SolveXCSP {
 		boolean traceSearch = (cmd.hasOption("trace-search"));
 		boolean damp = (cmd.hasOption("damp-messages"));
 
+		int nWorkers = checkNWorkersOption(cmd.getOptionValue("workers"));
+
 		try {
 			XCSP xcsp = new XCSP(inputStr);
 			xcsp.searchType(searchType);
@@ -159,7 +166,7 @@ public class SolveXCSP {
 			xcsp.damp(damp);
 			xcsp.dampingFactor(dampingFactor);
 
-			xcsp.solve(heuristic, timeout, statsFileStr, solFileStr, 5);
+			xcsp.solve(heuristic, timeout, statsFileStr, solFileStr, nWorkers);
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
@@ -212,6 +219,25 @@ public class SolveXCSP {
 		}
 
 		return timeout.intValue();
+	}
+
+	private static int checkNWorkersOption(String nWorkersStr) {
+		if (nWorkersStr == null)
+			return 1;
+		Integer nWorkers = null;
+		try {
+			nWorkers = Integer.valueOf(nWorkersStr);
+		} catch (NumberFormatException e) {
+			System.out.println("invalid number of workers " + nWorkersStr);
+			System.exit(1);
+		}
+
+		if (nWorkers <= 0) {
+			System.out.println("invalid number of workers " + nWorkers);
+			System.exit(1);
+		}
+
+		return nWorkers;
 	}
 
 	private static void checkCreateFile(String filename) {

@@ -2229,19 +2229,21 @@ public class XCSP implements XCallbacks2, Runnable {
 			extractSolutionStr = true;
 
 		List<String> solutions;
-		if (nWorkers > 1)
+		if (checkSolution) {
+			solutions = verifyParallelCorrectness(heuristic, timeout, solFileStr, nWorkers);
+		} else if (nWorkers > 1) {
+			System.out.println("parallel solving with " + nWorkers + " workers");
 			solutions = solveParallel(heuristic, timeout, solFileStr, nWorkers);
-		else if (nWorkers == 1)
+		} else  {
+			System.out.println("sequential solving");
 			solutions = solveSequential(heuristic, timeout, solFileStr);
-		else {
-			verifyParallelCorrectness(heuristic, timeout, solFileStr);
-			return;
 		}
 
 		/* Aggregate solutions to verify if needed */
 		foundSolution = !solutions.isEmpty();
 		if(!competitionOutput) {
 			if (foundSolution) {
+				boolean allCorrect = true;
 				System.out.printf("%d solutions found%n", solutions.size());
 				for (String values : solutions) {
 					StringBuilder sol = new StringBuilder("<instantiation>\n\t<list>\n\t\t");
@@ -2253,9 +2255,16 @@ public class XCSP implements XCallbacks2, Runnable {
 					solutionStr = sol.toString();
 
 					if (checkSolution)
-						verifySolution();
+						if (!verifySolution()) {
+							allCorrect = false;
+							System.out.printf("solution %s is not correct%n", solutionStr);
+						}
 //					printSolution(solFileStr);
 				}
+				if (checkSolution && allCorrect)
+					System.out.println("all solutions are correct");
+				else
+					System.err.println("some solutions are not correct");
 			} else
 				System.out.println("no solution was found");
 
@@ -2280,22 +2289,33 @@ public class XCSP implements XCallbacks2, Runnable {
 
 	}
 
-	private void verifyParallelCorrectness(BranchingHeuristic heuristic, int timeout, String solFileStr) {
-		List<String> solutionsParallel = solveParallel(heuristic, timeout, solFileStr, 7);
+	private List<String> verifyParallelCorrectness(BranchingHeuristic heuristic, int timeout, String solFileStr, int nWorkers) {
+		List<String> solutionsParallel = solveParallel(heuristic, timeout, solFileStr, nWorkers);
 		List<String> solutionsSequential = solveSequential(heuristic, timeout, solFileStr);
 
 		// check if the solutions are the same
+		boolean same = true;
 		if (solutionsParallel.size() != solutionsSequential.size()) {
 			System.err.println("size of solutions are not the same");
-			System.exit(1);
+			System.err.printf("solutionsParallel = %d%n", solutionsParallel.size());
+			System.err.printf("solutionsSequential = %d%n", solutionsSequential.size());
+			same = false;
 		}
 		for (String sol : solutionsSequential) {
 			if (!solutionsParallel.contains(sol)) {
+				same = false;
 				System.err.println("solutions are not the same");
-				System.exit(1);
+				System.err.printf("Solution %s is in solutionSequential, but not in solutionsParallel%n", sol);
 			}
 		}
-		System.err.println("solutions are the same");
+		if (same) {
+			System.err.println("solutions are the same");
+			return solutionsParallel;
+		}
+		else {
+			System.exit(1);
+			return List.of();
+		}
 	}
 
 	private List<String> solveParallel(BranchingHeuristic heuristic, int timeout, String solFileStr, int nWorkers) {
@@ -2512,32 +2532,6 @@ public class XCSP implements XCallbacks2, Runnable {
 				sol.append(x.min()).append(" ");
 			}
 			subproblemSolutions.add(sol.toString());
-//			extractSolutionStr = true;
-//			if (extractSolutionStr) {
-//				StringBuilder sol = new StringBuilder("<instantiation>\n\t<list>\n\t\t");
-//				for (XVarInteger x : xVars)
-//					sol.append(x.id()).append(" ");
-//				sol.append("\n\t</list>\n\t<values>\n\t\t");
-//				for (IntVar x : minicpVars) {
-//					sol.append(x.min()).append(" ");
-//				}
-//				sol.append("\n\t</values>\n</instantiation>");
-//				solutionStr = sol.toString();
-//				solutions.add(solutionStr);
-//			}
-//			if(competitionOutput) {
-//				StringBuilder sol = new StringBuilder("v <instantiation>\nv <list> ");
-//				for (XVarInteger x : xVars)
-//					sol.append(x.id()).append(" ");
-//				sol.append("</list>\nv <values> ");
-//				for (IntVar x : minicpVars) {
-//					sol.append(x.min()).append(" ");
-//				}
-//				sol.append("</values>\nv </instantiation>");
-//				solutionStr = sol.toString();
-//			}
-//			// GP: printing each solution
-//			System.out.println("SOLN:"+solutionStr);
 		});
 
 		if (!restart) {
@@ -2547,51 +2541,27 @@ public class XCSP implements XCallbacks2, Runnable {
 		}
 
 		System.out.println("Found " + subproblemSolutions.size() + " solutions in " + (System.currentTimeMillis() - childT0) + " ms");
-
-//		if(!competitionOutput) {
-//			if (foundSolution) {
-//				if(competitionOutput) {}
-//				System.out.println("solution found");
-//				if (checkSolution)
-//					verifySolution();
-//				printSolution(solFileStr);
-//			} else
-//				System.out.println("no solution was found");
-//
-//			Long runtime = System.currentTimeMillis() - t0;
-//			printStats(stats, statsFileStr, runtime);
-//		}
-//		else {
-//			if(foundSolution) {
-//				System.out.println("s SATISFIABLE");
-//				System.out.println(solutionStr);
-//				System.out.println("c "+stats.numberOfFailures()+" backtracks");
-//			}
-//			else if(stats.isCompleted()) {
-//				System.out.println("s UNSATISFIABLE");
-//				System.out.println("c "+stats.numberOfFailures()+" backtracks");
-//			}
-//			else {
-//				System.out.println("s UNKNOWN");
-//			}
-//		}
-
 	}
 
-	private void verifySolution() {
-		System.out.println("verifying the solution (begin)");
+	private boolean verifySolution() {
+//		System.out.println("verifying the solution (begin)");
+		boolean hasFailed = false;
 		try {
 			SolutionChecker checker = new SolutionChecker(false, fileName,
 					new ByteArrayInputStream(solutionStr.getBytes()));
-			if (checker.violatedCtrs.size() > 0)
+			if (!checker.violatedCtrs.isEmpty()) {
+				hasFailed = true;
 				System.out.println("INVALID SOLUTION");
-			else
-				System.out.println("VALID SOLUTION");
+			}
+			//System.out.println("VALID SOLUTION");
+
 		} catch (Exception e) {
 			e.printStackTrace();
+			hasFailed = true;
 			System.out.println("unable to verify the solution");
 		}
-		System.out.println("verifying the solution (end)");
+		return !hasFailed;
+//		System.out.println("verifying the solution (end)");
 	}
 
 	private void printSolution(String solFileStr) {
