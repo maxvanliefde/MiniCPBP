@@ -2358,6 +2358,10 @@ public class XCSP implements XCallbacks2, Runnable {
 			search.solve();
 
 			// add computed tuples as constraints and propagate them
+			if (tuples.isEmpty()) {
+				System.err.printf("Decomposition found no solution at depth %d, problem is UNSAT%n", d);
+				return List.of();
+			}
 			decompositionSolver.post(table(q, Utils.generateTableFromList(tuples)));
 			decompositionSolver.propagateSolver();
 
