@@ -2263,7 +2263,7 @@ public class XCSP implements XCallbacks2, Runnable {
 				}
 				if (checkSolution && allCorrect)
 					System.out.println("all solutions are correct");
-				else
+				else if (checkSolution)
 					System.err.println("some solutions are not correct");
 			} else
 				System.out.println("no solution was found");
@@ -2304,15 +2304,14 @@ public class XCSP implements XCallbacks2, Runnable {
 		for (String sol : solutionsSequential) {
 			if (!solutionsParallel.contains(sol)) {
 				same = false;
-				System.err.println("solutions are not the same");
 				System.err.printf("Solution %s is in solutionSequential, but not in solutionsParallel%n", sol);
 			}
 		}
 		if (same) {
-			System.err.println("solutions are the same");
+			System.out.println("solutions are the same");
 			return solutionsParallel;
-		}
-		else {
+		} else {
+			System.err.println("solutions are not the same");
 			System.exit(1);
 			return List.of();
 		}
