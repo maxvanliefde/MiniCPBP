@@ -27,7 +27,7 @@ import minicpbp.util.Belief;
 import java.io.Serializable;
 import java.util.Random;
 
-public interface Solver extends Serializable {
+public interface Solver {
 
     public enum PropaMode {
 	SP /* support propagation (aka standard constraint propagation) */, 
