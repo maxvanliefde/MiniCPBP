@@ -51,10 +51,11 @@ public class IDSearch {
         depthListeners.forEach(Procedure::call);
     }
 
-    public void solve() {
+    public void solve(SearchStatistics stats) {
         sm.withNewState(() -> {
             try {
-                ids(0);
+                ids(0, stats);
+                stats.setCompleted();
             } catch (StopSearchException ignored) {
             } catch (StackOverflowError e) {
                 throw new NotImplementedException("dfs with explicit stack needed to pass this test");
@@ -62,19 +63,21 @@ public class IDSearch {
         });
     }
 
-    private void ids(int depth) {
+    private void ids(int depth, SearchStatistics stats) {
         Procedure[] branches = branching.get();
         if (depth == maxDepth || branches.length == 0) {
+            stats.incrSolutions();
             notifyDepth();
             return;
         }
         for (Procedure b : branches) {
             sm.withNewState(() -> {
                 try {
+                    stats.incrNodes();
                     b.call();
-                    ids(depth + 1);
+                    ids(depth + 1, stats);
                 } catch (InconsistencyException e) {
-                    // do nothing
+                    stats.incrFailures();
                 }
             });
         }
