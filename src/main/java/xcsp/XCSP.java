@@ -18,7 +18,7 @@ package xcsp;
 import minicpbp.cp.Factory;
 import minicpbp.engine.core.*;
 import minicpbp.engine.core.Solver.PropaMode;
-import minicpbp.search.IDSearch;
+import minicpbp.search.DLSearch;
 import minicpbp.search.LDSearch;
 import minicpbp.search.Search;
 import minicpbp.search.SearchStatistics;
@@ -2270,7 +2270,6 @@ public class XCSP implements XCallbacks2, Runnable {
 
 			long runtime = System.currentTimeMillis() - t0;
 			System.out.println("runtime: " + runtime + " ms");
-//			printStats(stats, statsFileStr, runtime);
 		}
 //		else {
 //			if(foundSolution) {
@@ -2437,7 +2436,7 @@ public class XCSP implements XCallbacks2, Runnable {
 			IntVar[] q = Arrays.copyOfRange(vars, 0, d);
 
 			/* Extend current search */
-			IDSearch search = makeIds(decompositionSolver, d, topDownStaticOrdering(q));
+			DLSearch search = makeIds(decompositionSolver, d, topDownStaticOrdering(q));
 
 			search.onMaxDepth(() -> {
                 for (IntVar intVar : q) assert intVar.isBound();

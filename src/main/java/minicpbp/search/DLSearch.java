@@ -22,13 +22,12 @@ import minicpbp.util.Procedure;
 
 import java.util.LinkedList;
 import java.util.List;
-import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
- * Depth First Search Branch and Bound implementation
+ * Depth-Limited Depth First Search
  */
-public class IDSearch {
+public class DLSearch {
 
     private Supplier<Procedure[]> branching;
     private StateManager sm;
@@ -37,7 +36,7 @@ public class IDSearch {
 
     private List<Procedure> depthListeners = new LinkedList<>();
 
-    public IDSearch(StateManager sm, int maxDepth, Supplier<Procedure[]> branching) {
+    public DLSearch(StateManager sm, int maxDepth, Supplier<Procedure[]> branching) {
         this.sm = sm;
         this.branching = branching;
         this.maxDepth = maxDepth;

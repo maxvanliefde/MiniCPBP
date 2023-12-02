@@ -21,7 +21,7 @@ package minicpbp.cp;
 import minicpbp.engine.constraints.*;
 import minicpbp.engine.core.*;
 import minicpbp.search.DFSearch;
-import minicpbp.search.IDSearch;
+import minicpbp.search.DLSearch;
 import minicpbp.search.LDSearch;
 import minicpbp.search.Objective;
 import minicpbp.state.Copier;
@@ -234,9 +234,9 @@ public final class Factory {
         return new DFSearch(cp.getStateManager(), branching);
     }
 
-    public static IDSearch makeIds(Solver cp, int maxDepth, Supplier<Procedure[]> branching) {
+    public static DLSearch makeIds(Solver cp, int maxDepth, Supplier<Procedure[]> branching) {
         cp.propagateSolver(); // initial propagation at root node
-        return new IDSearch(cp.getStateManager(), maxDepth, branching);
+        return new DLSearch(cp.getStateManager(), maxDepth, branching);
     }
 
     public static DFSearch makeDfs(Solver cp, Supplier<Procedure[]> branching, Supplier<Procedure[]> branchingSecond) {
