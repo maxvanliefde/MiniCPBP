@@ -83,7 +83,7 @@ public class XCSP implements XCallbacks2, Runnable {
 	private int timeout;
 	private BranchingHeuristic heuristic;
 	private IntVar[] subproblemVars;
-	private List<String> subproblemSolutions;
+	private List<String> subproblemSolutions = new ArrayList<>();
 	private SearchStatistics stats;
 
 	@Override
@@ -108,6 +108,25 @@ public class XCSP implements XCallbacks2, Runnable {
 
 		loadInstance(fileName);
 	}
+
+	protected XCSP(XCSP xcsp) throws Exception {
+		this(xcsp.fileName);
+		this.t0 = xcsp.t0;
+		this.timeout = xcsp.timeout;
+		this.heuristic = xcsp.heuristic;
+		this.subproblemSolutions = new ArrayList<>();
+		minicp.setTraceBPFlag(traceBP);
+		minicp.setTraceSearchFlag(traceSearch);
+//		minicp.setTraceNbIterFlag(traceNbIter);
+		minicp.setTraceEntropyFlag(traceEntropy);
+		minicp.setMaxIter(maxIter);
+//		minicp.setDynamicStopBP(dynamicStopBP);
+		minicp.setDamp(damp);
+		minicp.setDampingFactor(dampingFactor);
+//		minicp.setVariationThreshold(variationThreshold);
+
+	}
+
 
 	public boolean isCOP() {
 		return objectiveMinimize.isPresent();
@@ -2213,6 +2232,8 @@ public class XCSP implements XCallbacks2, Runnable {
 
 	public void solve(BranchingHeuristic heuristic, int timeout, String statsFileStr, String solFileStr, int nWorkers) {
 		this.t0 = System.currentTimeMillis();
+		this.heuristic = heuristic;
+		this.timeout = timeout;
 
 		if (hasFailed) {
 			if (!competitionOutput) {
@@ -2230,13 +2251,13 @@ public class XCSP implements XCallbacks2, Runnable {
 
 		List<String> solutions;
 		if (checkSolution) {
-			solutions = verifyParallelCorrectness(heuristic, timeout, solFileStr, nWorkers);
+			solutions = verifyParallelCorrectness(solFileStr, nWorkers);
 		} else if (nWorkers > 1) {
 			System.out.println("parallel solving with " + nWorkers + " workers");
-			solutions = solveParallel(heuristic, timeout, solFileStr, nWorkers);
+			solutions = solveParallel(solFileStr, nWorkers);
 		} else  {
 			System.out.println("sequential solving");
-			solutions = solveSequential(heuristic, timeout, solFileStr);
+			solutions = solveSequential(solFileStr);
 		}
 
 		/* Aggregate solutions to verify if needed */
@@ -2288,9 +2309,9 @@ public class XCSP implements XCallbacks2, Runnable {
 
 	}
 
-	private List<String> verifyParallelCorrectness(BranchingHeuristic heuristic, int timeout, String solFileStr, int nWorkers) {
-		List<String> solutionsParallel = solveParallel(heuristic, timeout, solFileStr, nWorkers);
-		List<String> solutionsSequential = solveSequential(heuristic, timeout, solFileStr);
+	private List<String> verifyParallelCorrectness(String solFileStr, int nWorkers) {
+		List<String> solutionsParallel = solveParallel(solFileStr, nWorkers);
+		List<String> solutionsSequential = solveSequential(solFileStr);
 
 		// check if the solutions are the same
 		boolean same = true;
@@ -2316,28 +2337,16 @@ public class XCSP implements XCallbacks2, Runnable {
 		}
 	}
 
-	private List<String> solveParallel(BranchingHeuristic heuristic, int timeout, String solFileStr, int nWorkers) {
+	private List<String> solveParallel(String solFileStr, int nWorkers) {
 		/* Instantiate the instances */
 		int nInstances = 30 * nWorkers;
 		XCSP[] xcsps = new XCSP[nInstances];
 		for (int i = 0; i < nInstances; i++) {
-			XCSP subproblem = getNewProblem();
-			subproblem.t0 = t0;
-			subproblem.timeout = timeout;
-			subproblem.heuristic = heuristic;
-			subproblem.subproblemSolutions = new ArrayList<>();
-			xcsps[i] = subproblem;
-
-			Solver subproblemSolver = xcsps[i].minicp;
-			subproblemSolver.setTraceBPFlag(traceBP);
-			subproblemSolver.setTraceSearchFlag(traceSearch);
-//			subproblemSolver.setTraceNbIterFlag(traceNbIter);
-			subproblemSolver.setTraceEntropyFlag(traceEntropy);
-			subproblemSolver.setMaxIter(maxIter);
-//			subproblemSolver.setDynamicStopBP(dynamicStopBP);
-			subproblemSolver.setDamp(damp);
-			subproblemSolver.setDampingFactor(dampingFactor);
-//			subproblemSolver.setVariationThreshold(variationThreshold);
+			try {
+				xcsps[i] = new XCSP(this);
+			} catch (Exception e) {
+				throw new RuntimeException(e);
+			}
 		}
 		
 		/* Decomposition */
@@ -2467,10 +2476,7 @@ public class XCSP implements XCallbacks2, Runnable {
 		return tuples;
 	}
 
-	private List<String> solveSequential(BranchingHeuristic heuristic, int timeout, String solFileStr) {
-		this.timeout = timeout;
-		this.heuristic = heuristic;
-		this.subproblemSolutions = new ArrayList<>();
+	private List<String> solveSequential(String solFileStr) {
 		minicp.setTraceBPFlag(traceBP);
 		minicp.setTraceSearchFlag(traceSearch);
 //		minicp.setTraceNbIterFlag(traceNbIter);
