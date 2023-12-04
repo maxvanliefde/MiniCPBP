@@ -26,6 +26,12 @@ public class SolveXCSP {
 			put("min-marginal-strength", BranchingHeuristic.MNMS);
 			put("max-marginal", BranchingHeuristic.MXM);
 			put("min-marginal", BranchingHeuristic.MNM);
+			put("min-entropy", BranchingHeuristic.MNE);
+			put("impact-entropy", BranchingHeuristic.IE);
+			put("impact-min-entropy", BranchingHeuristic.MIE);
+			put("min-entropy-biased", BranchingHeuristic.MNEBW);
+			put("dom-wdeg", BranchingHeuristic.WDEG);
+			put("impact-based-search", BranchingHeuristic.IBS);
 		}
 	};
 	
