@@ -6,7 +6,7 @@ files=(
   ~/XCSPInstances/ColouredQueens/ColouredQueens-m1-s1/ColouredQueens-07.xml
   ~/XCSPInstances/DeBruijnSequence/DeBruijnSequence-m1-s1/DeBruijnSequence-03-03.xml
   ~/XCSPInstances/CostasArray/CostasArray-m1-s1/CostasArray-12.xml
-  ~/XCSPInstances/QueensKnights/QueensKnights-m1-s1/QueensKnights-020-05-mul.xml
+#  ~/XCSPInstances/QueensKnights/QueensKnights-m1-s1/QueensKnights-020-05-mul.xml
   ~/XCSPInstances/SchurrLemma/SchurrLemma-mod-s1/SchurrLemma-100-9-mod.xml
   ~/XCSPInstances/QueenAttacking/QueenAttacking-m1-s1/QueenAttacking-05.xml
   ~/XCSPInstances/PigeonsPlus/PigeonsPlus-m1-s1/pigeonsPlus-08-07.xml
@@ -44,7 +44,7 @@ for file in "${files[@]}"; do
 
   echo "Running sequential $instance (5 times)....."
   for i in {0..5}; do
-    timeout -v 3660 /usr/bin/time -f %e java -jar target/minicpbp-1.0.jar --input "$file" --branching $branching --search-type dfs --timeout 3600 --workers 1 > /dev/null 2> "$dir/results-sequential-$instance-$i.csv" &
+    timeout -v 3660 /usr/bin/time -f %e java -jar target/minicpbp-1.0.jar --input "$file" --branching $branching --search-type dfs --timeout 3600 --workers 1 > /dev/null 2> "$dir/results-sequential-$instance-$i.time" &
   done
   echo " done"
   wait
