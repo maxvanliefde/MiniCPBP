@@ -2,6 +2,8 @@
 
 # README #
 
+* INF6101-A23 Mini-Project: Implementing the Embarrassingly Parallel Search to solve XCSP problems
+* A paper describing the EPS method: <https://www.jair.org/index.php/jair/article/view/11031>
 * MiniCPBP: Replacing classic propagation by belief propagation in MiniCPv1.0
 * A paper describing the CP-BP framework  <https://jair.org/index.php/jair/article/view/11487>.
 * Infos on MiniCP can be found <http://minicp.org>.
